@@ -776,12 +776,62 @@ def main(path):
         return 1
 
 
+def _wait_for_keypress():
+    """Pause until the user presses a key, so a double-clicked Windows
+    binary doesn't close its console window before they can read the
+    output. Skipped when not running in an interactive terminal (e.g.
+    in CI, in a pipeline, or when output is being captured) so
+    automated invocations don't hang forever."""
+    # If stdin or stdout isn't a TTY, we're being scripted -- no point
+    # blocking on keypress. Also covers the case where stdin was closed.
+    try:
+        if not (sys.stdin and sys.stdin.isatty() and
+                sys.stdout and sys.stdout.isatty()):
+            return
+    except Exception:
+        return
+
+    print()  # blank line for visual separation
+    try:
+        if os.name == 'nt':
+            # Windows: msvcrt.getch() returns immediately on any keypress
+            # (no Enter required). Available in the standard library on
+            # Windows-only.
+            import msvcrt
+            print("Press any key to exit...", end='', flush=True)
+            msvcrt.getch()
+            print()
+        else:
+            # POSIX: Enter-to-continue is the simplest portable approach.
+            # Avoids fiddling with termios for raw single-key reads.
+            input("Press Enter to exit...")
+    except (KeyboardInterrupt, EOFError):
+        # User hit Ctrl-C or stdin was closed -- proceed to exit.
+        pass
+
+
 if __name__ == '__main__':
-    if len(sys.argv) != 2:
-        print(f"Usage: python3 {os.path.basename(sys.argv[0])} "
-              f"<DNAS255.IMG | game.iso | UTIL.REL>")
-        sys.exit(1)
-    rc = main(sys.argv[1])
-    if rc == 0:
-        print(f"\n[+] Done.")
+    rc = 1
+    try:
+        if len(sys.argv) != 2:
+            print(f"Usage: python3 {os.path.basename(sys.argv[0])} "
+                  f"<DNAS255.IMG | game.iso | UTIL.REL>")
+            # Usage errors don't need a keypress prompt -- the user just
+            # mistyped the command and will see the usage line fine.
+            sys.exit(1)
+        rc = main(sys.argv[1])
+        if rc == 0:
+            print(f"\n[+] Done.")
+    except KeyboardInterrupt:
+        print("\n[!] Interrupted by user.")
+        rc = 130
+    except Exception as e:
+        # Catch any unexpected exception so the keypress prompt still
+        # fires and the user sees what blew up before the window closes.
+        import traceback
+        print(f"\n[!] Unexpected error: {e}")
+        traceback.print_exc()
+        rc = 1
+    finally:
+        _wait_for_keypress()
     sys.exit(rc)
