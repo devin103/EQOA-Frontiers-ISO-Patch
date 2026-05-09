@@ -667,7 +667,7 @@ def _prompt_yes_no(message, default='no'):
         print(f"  Please answer y or n.")
 
 
-
+def _prompt_patch_mode():
     """Ask the user which patches to apply: DNAS bypass only, iLinkID
     fix only, or both. Returns one of 'dnas', 'ilink', 'both'.
 
