@@ -212,4 +212,4 @@ This tool is intended for preserving access to legally-owned copies of EQOA Fron
 
 ## License
 
-[Add license info here — MIT, GPL, etc.]
+[MIT License](https://github.com/devin103/EQOA-Frontiers-ISO-Patch/blob/main/LICENSE)
