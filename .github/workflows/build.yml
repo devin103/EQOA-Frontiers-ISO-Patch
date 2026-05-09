@@ -30,9 +30,6 @@ jobs:
           - os: windows-latest
             artifact_name: eqoa-frontiers-iso-patch-windows-x86_64
             executable_ext: '.exe'
-          - os: macos-13
-            artifact_name: eqoa-frontiers-iso-patch-macos-x86_64
-            executable_ext: ''
           - os: macos-latest
             artifact_name: eqoa-frontiers-iso-patch-macos-arm64
             executable_ext: ''
@@ -107,7 +104,6 @@ jobs:
           mkdir -p release
           cp "artifacts/eqoa-frontiers-iso-patch-linux-x86_64/eqoa-frontiers-iso-patch"       "release/eqoa-frontiers-iso-patch-linux-x86_64"
           cp "artifacts/eqoa-frontiers-iso-patch-windows-x86_64/eqoa-frontiers-iso-patch.exe" "release/eqoa-frontiers-iso-patch-windows-x86_64.exe"
-          cp "artifacts/eqoa-frontiers-iso-patch-macos-x86_64/eqoa-frontiers-iso-patch"       "release/eqoa-frontiers-iso-patch-macos-x86_64"
           cp "artifacts/eqoa-frontiers-iso-patch-macos-arm64/eqoa-frontiers-iso-patch"        "release/eqoa-frontiers-iso-patch-macos-arm64"
           ls -l release
 
