@@ -622,7 +622,52 @@ def detect_file_type(f):
 #  Main
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _prompt_patch_mode():
+def _prompt_yes_no(message, default='no'):
+    """Ask the user a yes/no question and return True/False.
+
+    `default` is 'yes' or 'no' and selects what pressing Enter does.
+
+    For non-interactive runs (no TTY), returns False unless the
+    EQOA_OVERRIDE_INTEGRITY environment variable is set to '1'/'yes'/
+    'true' (case-insensitive). This lets automation explicitly opt in
+    without us blocking on a prompt that nobody will answer.
+    """
+    # Env-var override for automation. Useful for CI/scripted runs that
+    # know they want to proceed despite a warning.
+    env_override = os.environ.get('EQOA_OVERRIDE_INTEGRITY', '').strip().lower()
+    if env_override in ('1', 'yes', 'true', 'y'):
+        print(f"[*] EQOA_OVERRIDE_INTEGRITY is set; continuing despite warning.")
+        return True
+
+    # If we're not interactive and there's no env override, refuse.
+    try:
+        interactive = (sys.stdin and sys.stdin.isatty() and
+                       sys.stdout and sys.stdout.isatty())
+    except Exception:
+        interactive = False
+    if not interactive:
+        print("[!] Non-interactive run; refusing to proceed past integrity warning.")
+        print("[!] Set EQOA_OVERRIDE_INTEGRITY=1 in the environment to override.")
+        return False
+
+    suffix = '[Y/n]' if default == 'yes' else '[y/N]'
+    while True:
+        try:
+            answer = input(f"{message} {suffix}: ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return False
+
+        if answer == '':
+            return default == 'yes'
+        if answer in ('y', 'yes'):
+            return True
+        if answer in ('n', 'no'):
+            return False
+        print(f"  Please answer y or n.")
+
+
+
     """Ask the user which patches to apply: DNAS bypass only, iLinkID
     fix only, or both. Returns one of 'dnas', 'ilink', 'both'.
 
@@ -769,8 +814,12 @@ def main(path):
 
     # ── SHA-256 integrity check (ISO inputs only) ──
     # First-line gate: verify the entire ISO matches a known-good hash.
-    # If the file fails here we eject before any other work, before any
-    # write.
+    # On mismatch we WARN rather than abort -- repackaged-but-otherwise-
+    # identical ISOs (different rippers, repacked releases, etc.) can
+    # produce a different hash with no functional difference. The user
+    # is given a chance to continue if they know what they're doing.
+    # The stricter ELF-XOR check below is the actual hard gate against
+    # a different game build.
     if kind == 'iso':
         print(f"[*] Verifying ISO SHA-256...")
         actual_sha = compute_file_sha256(path)
@@ -779,14 +828,30 @@ def main(path):
             print(f"    SHA-256:  {actual_sha}  ✓ ({sha_label})")
         else:
             print(f"    SHA-256:  {actual_sha}")
-            print(f"[!] ISO SHA-256 mismatch.")
-            print(f"[!]   expected {EXPECTED_ISO_SHA256.lower()}  (unmodified)")
+            print(f"")
+            print(f"[!] WARNING: ISO SHA-256 does not match the expected unmodified retail")
+            print(f"[!] build. This can happen for legitimate reasons (the ISO was ripped")
+            print(f"[!] differently, repacked, or is a different region/revision), or it")
+            print(f"[!] can mean the ISO is genuinely modified or corrupted.")
+            print(f"[!]")
+            print(f"[!]   expected {EXPECTED_ISO_SHA256.lower()}")
             for h, lbl in ACCEPTED_ISO_SHA256S.items():
                 if h != EXPECTED_ISO_SHA256.lower():
                     print(f"[!]   or       {h}  ({lbl})")
             print(f"[!]   actual   {actual_sha}")
-            print(f"[!] This script targets a specific ISO. Aborting without modification.")
-            return 1
+            print(f"[!]")
+            print(f"[!] If you continue, the script will still verify the main game ELF")
+            print(f"[!] checksum below before patching anything. If that ELF check fails,")
+            print(f"[!] the script WILL abort -- patches at hardcoded offsets cannot be")
+            print(f"[!] safely applied to a different game build.")
+            print(f"[!]")
+            print(f"[!] BEFORE CONTINUING: make sure you have a backup copy of this ISO")
+            print(f"[!] in case patching produces an unusable result.")
+            print(f"")
+            if not _prompt_yes_no("Continue past the SHA-256 warning?", default='no'):
+                print(f"[!] Aborting without modification.")
+                return 1
+            print(f"[*] Continuing past SHA-256 warning per user choice.")
 
     # ── Game-ELF integrity check (ISO inputs only) ──
     # The expected checksum is the XOR fold over the main game ELF (the
