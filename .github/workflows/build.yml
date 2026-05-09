@@ -1,13 +1,3 @@
-# Builds standalone executables of patch_dnas.py for Linux and Windows.
-#
-# Triggers:
-#   - On every push/PR to main: builds and uploads as workflow artifacts
-#     (download via the "Actions" tab in the GitHub UI; kept ~90 days).
-#   - On pushing a tag matching v*.*.* (e.g. v1.0.0): builds AND creates a
-#     GitHub Release with the executables attached.
-#
-# Manual trigger: also runnable from the Actions tab via "Run workflow".
-
 name: build
 
 on:
@@ -16,10 +6,14 @@ on:
     tags:     ['v*.*.*']
   pull_request:
     branches: [main]
-  workflow_dispatch:   # allow manual runs from the Actions tab
+  workflow_dispatch:
 
 permissions:
-  contents: write   # needed for creating GitHub Releases on tag pushes
+  contents: write
+
+env:
+  SOURCE_SCRIPT: "EQOA Frontiers ISO Patch.py"
+  BINARY_NAME:   "eqoa-frontiers-iso-patch"
 
 jobs:
   build:
@@ -27,84 +21,73 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     strategy:
-      fail-fast: false   # one platform failing shouldn't cancel the others
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
-            artifact_name: patch_dnas-linux-x86_64
+            artifact_name: eqoa-frontiers-iso-patch-linux-x86_64
             executable_ext: ''
           - os: windows-latest
-            artifact_name: patch_dnas-windows-x86_64
+            artifact_name: eqoa-frontiers-iso-patch-windows-x86_64
             executable_ext: '.exe'
-          - os: macos-13         # Intel x86_64 runner
-            artifact_name: patch_dnas-macos-x86_64
+          - os: macos-13
+            artifact_name: eqoa-frontiers-iso-patch-macos-x86_64
             executable_ext: ''
-          - os: macos-latest     # Apple Silicon (arm64) runner
-            artifact_name: patch_dnas-macos-arm64
+          - os: macos-latest
+            artifact_name: eqoa-frontiers-iso-patch-macos-arm64
             executable_ext: ''
 
     steps:
       - name: Checkout source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
       - name: Install PyInstaller
-        # The script itself has no third-party deps (stdlib only), so
-        # PyInstaller is the only thing we need to install.
         run: python -m pip install --upgrade pip pyinstaller
 
       - name: Build single-file executable
-        # --onefile      => one self-contained binary, no folder of files
-        # --console      => keep the console window (CLI tool, not GUI)
-        # --name ...     => sets the output binary name without extension
-        # --strip        => smaller binaries on Linux (Windows ignores this)
-        # --noupx        => skip UPX compression (UPX often triggers AV
-        #                   false positives on Windows; binary stays a few
-        #                   MB larger but won't get flagged)
+        shell: bash
         run: |
-          pyinstaller --onefile --console --noupx --name patch_dnas patch_dnas.py
+          pyinstaller \
+            --onefile \
+            --console \
+            --noupx \
+            --name "${BINARY_NAME}" \
+            "${SOURCE_SCRIPT}"
 
       - name: Verify the executable runs
-        # Smoke test: invoke the binary with no args. The script prints its
-        # usage and exits 1 (per the existing `if len(sys.argv) != 2` check),
-        # so we expect exit code 1 here. We just want to confirm the binary
-        # actually launches without crashing on missing libs or similar.
         shell: bash
         run: |
           set +e
-          ./dist/patch_dnas${{ matrix.executable_ext }}
+          "./dist/${BINARY_NAME}${{ matrix.executable_ext }}"
           rc=$?
           set -e
           if [ "$rc" -ne 1 ]; then
             echo "Expected exit code 1 (usage), got $rc"
             exit 1
           fi
-          echo "Smoke test passed (binary launched and printed usage)."
+          echo "Smoke test passed."
 
-      - name: Rename binary for artifact
-        # The artifact name embeds the platform so users know which is
-        # which. The binary inside keeps a clean "patch_dnas" name.
+      - name: Stage binary for upload
         shell: bash
         run: |
           mkdir -p out
-          cp "dist/patch_dnas${{ matrix.executable_ext }}" \
-             "out/patch_dnas${{ matrix.executable_ext }}"
+          cp "dist/${BINARY_NAME}${{ matrix.executable_ext }}" \
+             "out/${BINARY_NAME}${{ matrix.executable_ext }}"
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact_name }}
-          path: out/patch_dnas${{ matrix.executable_ext }}
+          path: out/${{ env.BINARY_NAME }}${{ matrix.executable_ext }}
           if-no-files-found: error
           retention-days: 90
 
   release:
-    # Only run when a v*.*.* tag is pushed. Pulls down the artifacts the
-    # build job uploaded and attaches them to a GitHub Release.
     name: Publish GitHub Release
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
@@ -112,7 +95,7 @@ jobs:
 
     steps:
       - name: Download all build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           path: artifacts
 
@@ -120,15 +103,12 @@ jobs:
         run: ls -lR artifacts
 
       - name: Stage release files with platform-specific names
-        # Each artifact contains a generic "patch_dnas[.exe]" -- we rename
-        # them to include the platform/arch so users picking from the
-        # release page can tell them apart.
         run: |
           mkdir -p release
-          cp artifacts/patch_dnas-linux-x86_64/patch_dnas         release/patch_dnas-linux-x86_64
-          cp artifacts/patch_dnas-windows-x86_64/patch_dnas.exe   release/patch_dnas-windows-x86_64.exe
-          cp artifacts/patch_dnas-macos-x86_64/patch_dnas         release/patch_dnas-macos-x86_64
-          cp artifacts/patch_dnas-macos-arm64/patch_dnas          release/patch_dnas-macos-arm64
+          cp "artifacts/eqoa-frontiers-iso-patch-linux-x86_64/eqoa-frontiers-iso-patch"       "release/eqoa-frontiers-iso-patch-linux-x86_64"
+          cp "artifacts/eqoa-frontiers-iso-patch-windows-x86_64/eqoa-frontiers-iso-patch.exe" "release/eqoa-frontiers-iso-patch-windows-x86_64.exe"
+          cp "artifacts/eqoa-frontiers-iso-patch-macos-x86_64/eqoa-frontiers-iso-patch"       "release/eqoa-frontiers-iso-patch-macos-x86_64"
+          cp "artifacts/eqoa-frontiers-iso-patch-macos-arm64/eqoa-frontiers-iso-patch"        "release/eqoa-frontiers-iso-patch-macos-arm64"
           ls -l release
 
       - name: Create GitHub Release
@@ -136,6 +116,4 @@ jobs:
         with:
           files: release/*
           generate_release_notes: true
-          # Don't mark prereleases automatically; bump to true if you tag
-          # things like v1.0.0-beta.1 and want them flagged as prerelease.
           prerelease: false
