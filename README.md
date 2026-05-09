@@ -11,10 +11,10 @@ Given an unmodified EQOA Frontiers ISO, it can produce a modified ISO with one o
 
 Before patching, the script verifies:
 
-- The whole-ISO **SHA-256** matches a known-good fingerprint of the unmodified retail ISO.
-- The main game ELF (`SLUS_207.44`) **XOR checksum** matches the expected build.
+- The whole-ISO **SHA-256** matches a known-good fingerprint of the unmodified retail ISO. On mismatch the script **warns and prompts** you to confirm before continuing — repackaged or differently-ripped ISOs can produce different hashes without being functionally different.
+- The main game ELF (`SLUS_207.44`) **XOR checksum** matches the expected build. This check is **stricter**: on mismatch the script aborts without modification, because the patches use hardcoded offsets that only fit one specific build.
 
-If either check fails, the script aborts without modifying the ISO. This prevents accidentally corrupting a different build.
+You can ignore the SHA-256 warning if you know your ISO is functionally correct (e.g., it's been working in PCSX2 unpatched), but **never** override the ELF checksum failure — applying the patches at the wrong offsets would corrupt the file.
 
 ## ⚠️ Before you start: back up your ISO
 
@@ -127,6 +127,44 @@ python "EQOA Frontiers ISO Patch.py" "C:\path\to\EQOA Frontiers.iso"
 
 The double quotes around the script name are required on every platform because of the spaces in the filename.
 
+### What happens if the SHA-256 doesn't match
+
+The whole-ISO SHA-256 check is the script's first integrity gate. If your ISO doesn't match the expected hash, you'll see something like:
+
+```
+[!] WARNING: ISO SHA-256 does not match the expected unmodified retail
+[!] build. This can happen for legitimate reasons (the ISO was ripped
+[!] differently, repacked, or is a different region/revision), or it
+[!] can mean the ISO is genuinely modified or corrupted.
+[!]
+[!]   expected f1db24a5...
+[!]   actual   abc12345...
+[!]
+[!] If you continue, the script will still verify the main game ELF
+[!] checksum below before patching anything. If that ELF check fails,
+[!] the script WILL abort -- patches at hardcoded offsets cannot be
+[!] safely applied to a different game build.
+[!]
+[!] BEFORE CONTINUING: make sure you have a backup copy of this ISO
+[!] in case patching produces an unusable result.
+
+Continue past the SHA-256 warning? [y/N]:
+```
+
+You have two safe ways to continue past this:
+
+1. **Answer `y`** if you know the ISO is functionally correct — for example, if it's been working in PCSX2 unpatched, or if you got it from a different ripper than the one whose hash is hardcoded in the script. Make sure you have a backup first.
+2. **Answer `n`** (or just press Enter) to abort. Do this if you're unsure where the ISO came from or whether it's been modified.
+
+After you answer `y`, the script proceeds to the **ELF checksum check**, which is stricter and **cannot be overridden**. If the ELF checksum doesn't match, the script aborts without modification — applying the patches at the hardcoded offsets to a different game build would almost certainly corrupt the file.
+
+For automation/scripting, set the `EQOA_OVERRIDE_INTEGRITY` environment variable to `1` to skip the prompt and auto-continue past the warning:
+```bash
+EQOA_OVERRIDE_INTEGRITY=1 ./eqoa-frontiers-iso-patch-linux-x86_64 my-iso.iso
+```
+
+In non-interactive contexts without this env var, the script defaults to refusing — automated runs on a wrong-hash ISO are rejected to avoid silent failures.
+
 ### Choosing which patches to apply
 
 After integrity checks pass, the script asks which patches to apply:
@@ -151,7 +189,7 @@ In non-interactive contexts (output redirected to a file, CI, etc.), the script 
 
 ## What you should see
 
-A successful run looks roughly like this:
+A successful run on an unmodified ISO looks roughly like this:
 
 ```
 [*] Opening EQOA-Frontiers.iso  (4,295,098,368 bytes, 4096 MB)
@@ -181,14 +219,16 @@ Enter 1, 2, or 3 (or just press Enter for both): 3
 Press any key to exit...
 ```
 
-If any integrity check fails, the script prints which one and exits without modifying the file.
+If your ISO doesn't match the expected SHA-256, you'll see a warning prompt before the ELF check. See [What happens if the SHA-256 doesn't match](#what-happens-if-the-sha-256-doesnt-match) above.
+
+If the ELF checksum check fails, the script aborts without modification.
 
 ## Troubleshooting
 
 | Error | Cause | Fix |
 |---|---|---|
-| `ISO SHA-256 mismatch` | Your ISO has been modified, is a different region/revision, is partially-patched from a previous run, or is a re-mastered version | This patcher only supports the specific unmodified retail build. If it's partially patched, restore from your clean backup |
-| `Game ELF checksum mismatch` | Main game ELF differs from the expected build | Same as above |
+| `WARNING: ISO SHA-256 does not match...` | Your ISO is repackaged, ripped differently, or genuinely modified | This is a **warning, not an abort**. If you know the ISO works in PCSX2 unpatched, you can answer `y` to continue. The ELF checksum check that follows is the real safety gate. **Always have a backup before continuing past this warning.** |
+| `Game ELF checksum mismatch` | Main game ELF differs from the expected build | This **does** abort. The script's offsets only fit one specific build; patching a different one would corrupt the file. No safe override exists |
 | `cannot be opened because the developer cannot be verified` (macOS) | Gatekeeper quarantine | Run `xattr -d com.apple.quarantine ./binary-name` |
 | `Permission denied` (Linux/macOS) | Forgot `chmod +x` | `chmod +x ./binary-name` |
 | `'python' is not recognized` (Windows) | Python not on PATH | Reinstall Python with "Add to PATH" checked, or use the precompiled .exe |
@@ -212,4 +252,4 @@ This tool is intended for preserving access to legally-owned copies of EQOA Fron
 
 ## License
 
-[MIT License](https://github.com/devin103/EQOA-Frontiers-ISO-Patch/blob/main/LICENSE)
+[Add license info here — MIT, GPL, etc.]
