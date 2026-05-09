@@ -622,58 +622,129 @@ def detect_file_type(f):
 #  Main
 # ─────────────────────────────────────────────────────────────────────────────
 
-def patch_iso(f, path):
-    """For an ISO: find and patch DNAS255.IMG, then find and patch every
-    UTIL.REL on the disc. Returns 0 if everything we touched succeeded
-    (including no-ops); returns 1 only if something we attempted FAILED.
-    Missing-file conditions are reported but don't fail the run."""
+def _prompt_patch_mode():
+    """Ask the user which patches to apply: DNAS bypass only, iLinkID
+    fix only, or both. Returns one of 'dnas', 'ilink', 'both'.
+
+    For non-interactive runs (no TTY), defaults to 'both' so that
+    automated/scripted invocations behave the same as before this
+    prompt was added. Users wanting to override that in automation can
+    set the EQOA_PATCH_MODE environment variable.
+    """
+    # Honor an explicit env-var override if set (useful for scripting).
+    env_mode = os.environ.get('EQOA_PATCH_MODE', '').strip().lower()
+    if env_mode in ('dnas', 'ilink', 'both'):
+        print(f"[*] Patch mode (from EQOA_PATCH_MODE): {env_mode}")
+        return env_mode
+
+    # If we're not running interactively, default to both. Don't block
+    # waiting for input that will never come.
+    try:
+        interactive = (sys.stdin and sys.stdin.isatty() and
+                       sys.stdout and sys.stdout.isatty())
+    except Exception:
+        interactive = False
+    if not interactive:
+        print("[*] Non-interactive run; applying BOTH patches (default).")
+        return 'both'
+
+    # Interactive prompt.
+    print()
+    print("Which patches do you want to apply?")
+    print("  [1] DNAS bypass only       (modifies UTIL.REL)")
+    print("  [2] iLinkID fix only       (modifies DNAS255.IMG)")
+    print("  [3] Both                   (default)")
+    print()
+    print("WARNING: this script modifies the ISO IN PLACE. Once you pick,")
+    print("the patch is permanent for that ISO. If you choose 1 or 2 and")
+    print("later decide you want the other patch too, you must start from")
+    print("a fresh COPY of the original unmodified ISO -- the integrity")
+    print("checks won't accept a partially-patched ISO on a re-run.")
+    print()
+
+    while True:
+        try:
+            choice = input("Enter 1, 2, or 3 (or just press Enter for both): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            raise
+
+        if choice == '' or choice == '3':
+            return 'both'
+        if choice == '1':
+            return 'dnas'
+        if choice == '2':
+            return 'ilink'
+        print(f"  Unrecognized: {choice!r}. Please enter 1, 2, or 3.")
+
+
+def patch_iso(f, path, mode='both'):
+    """For an ISO: optionally patch DNAS255.IMG (iLinkID fix) and/or
+    every UTIL.REL on the disc (DNAS bypass), depending on `mode`.
+
+      mode='dnas'  -> apply ONLY the DNAS bypass (UTIL.REL stubs)
+      mode='ilink' -> apply ONLY the iLinkID fix (DNAS255.IMG byte-store)
+      mode='both'  -> apply both (default)
+
+    Returns 0 if everything we touched succeeded (including no-ops);
+    returns 1 only if something we attempted FAILED. Missing-file
+    conditions are reported but don't fail the run."""
 
     overall_rc = 0
     something_done = False
 
-    # ── DNAS255.IMG (specific path) ──
-    print("[*] Locating MODULES/DNAS255.IMG ...")
-    try:
-        img_base, img_size = iso_find_path(f, 'MODULES/DNAS255.IMG')
-        print(f"    Found at ISO offset 0x{img_base:08X}  ({img_size} bytes)")
-        f.seek(img_base)
-        if f.read(5) == b'RESET':
-            rc = patch_dnas255(f, img_base, label='MODULES/DNAS255.IMG')
-            if rc != 0:
-                overall_rc = 1
-            something_done = True
-        else:
-            print("[!] DNAS255.IMG missing RESET magic — skipping CDVDMAN patch.")
-            overall_rc = 1
-    except FileNotFoundError as e:
-        print(f"    [-] Not found: {e}  (skipping CDVDMAN patch)")
-    except ValueError as e:
-        print(f"[!] {e}")
-        overall_rc = 1
+    do_ilink = (mode in ('ilink', 'both'))
+    do_dnas  = (mode in ('dnas',  'both'))
 
-    # ── UTIL.REL (search whole tree) ──
-    print("\n[*] Searching ISO for UTIL.REL files ...")
-    util_matches = iso_walk_for_basename(f, 'UTIL.REL')
-    if not util_matches:
-        print("    [-] No UTIL.REL files found in ISO.")
-    else:
-        print(f"    Found {len(util_matches)} UTIL.REL file(s):")
-        for path_, off, size in util_matches:
-            print(f"      /{path_}  @ 0x{off:08X}  ({size:,} bytes)")
-        # Patch each one. Verify SNR1 magic; skip files that aren't actually REL.
-        for path_, off, size in util_matches:
-            f.seek(off)
-            head = f.read(4)
-            if head != SNR1_MAGIC:
-                print(f"\n[!] /{path_}: not a SNR1 file (magic={head!r}); skipping.")
-                continue
-            rc = patch_util_rel(f, file_base=off, label=f'/{path_}')
-            if rc != 0:
+    # ── DNAS255.IMG (iLinkID fix) ──
+    if do_ilink:
+        print("[*] Locating MODULES/DNAS255.IMG ...")
+        try:
+            img_base, img_size = iso_find_path(f, 'MODULES/DNAS255.IMG')
+            print(f"    Found at ISO offset 0x{img_base:08X}  ({img_size} bytes)")
+            f.seek(img_base)
+            if f.read(5) == b'RESET':
+                rc = patch_dnas255(f, img_base, label='MODULES/DNAS255.IMG')
+                if rc != 0:
+                    overall_rc = 1
+                something_done = True
+            else:
+                print("[!] DNAS255.IMG missing RESET magic - skipping iLinkID patch.")
                 overall_rc = 1
-            something_done = True
+        except FileNotFoundError as e:
+            print(f"    [-] Not found: {e}  (skipping iLinkID patch)")
+        except ValueError as e:
+            print(f"[!] {e}")
+            overall_rc = 1
+    else:
+        print("[*] Skipping iLinkID fix (DNAS255.IMG) per user selection.")
+
+    # ── UTIL.REL (DNAS bypass — search whole tree) ──
+    if do_dnas:
+        print("\n[*] Searching ISO for UTIL.REL files ...")
+        util_matches = iso_walk_for_basename(f, 'UTIL.REL')
+        if not util_matches:
+            print("    [-] No UTIL.REL files found in ISO.")
+        else:
+            print(f"    Found {len(util_matches)} UTIL.REL file(s):")
+            for path_, off, size in util_matches:
+                print(f"      /{path_}  @ 0x{off:08X}  ({size:,} bytes)")
+            # Patch each one. Verify SNR1 magic; skip files that aren't actually REL.
+            for path_, off, size in util_matches:
+                f.seek(off)
+                head = f.read(4)
+                if head != SNR1_MAGIC:
+                    print(f"\n[!] /{path_}: not a SNR1 file (magic={head!r}); skipping.")
+                    continue
+                rc = patch_util_rel(f, file_base=off, label=f'/{path_}')
+                if rc != 0:
+                    overall_rc = 1
+                something_done = True
+    else:
+        print("\n[*] Skipping DNAS bypass (UTIL.REL) per user selection.")
 
     if not something_done:
-        print("\n[!] Nothing patched — neither DNAS255.IMG nor any UTIL.REL was found.")
+        print("\n[!] Nothing patched.")
         return 1
     return overall_rc
 
@@ -759,6 +830,12 @@ def main(path):
             print(f"[!] Aborting without modification.")
             return 1
 
+    # ── Prompt user for which patches to apply (ISO inputs only) ──
+    # The raw IMG/REL paths only have one patch each, so no prompt needed.
+    iso_patch_mode = 'both'
+    if kind == 'iso':
+        iso_patch_mode = _prompt_patch_mode()
+
     with open(path, 'r+b') as f:
         if kind == 'util_rel':
             print("    Detected UTIL.REL (SNR1)")
@@ -770,7 +847,7 @@ def main(path):
 
         if kind == 'iso':
             print("    Detected ISO9660 image")
-            return patch_iso(f, path)
+            return patch_iso(f, path, mode=iso_patch_mode)
 
         print(f"[!] Unhandled file kind: {kind}")
         return 1
