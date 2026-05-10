@@ -2,7 +2,40 @@
 
 A patcher for the *EverQuest Online Adventures: Frontiers* PS2 ISO. It modifies an unmodified retail ISO so DNAS authentication is bypassed and the iLinkID check is zeroed out, allowing the game to decrypt its content using the same key path it would have used at install time on a console that originally had a zeroed iLinkID.
 
-## What this patcher does
+## Simple Quick Start
+
+If you just want to play EQOA Frontiers in PCSX2 and don't care about the technical details, here's the short version:
+
+1. **Get the patcher.** Download the version for your computer from the [Releases page](https://github.com/devin103/EQOA-Frontiers-ISO-Patch/releases):
+   - Windows → `eqoa-frontiers-iso-patch-windows-x86_64.exe`
+   - macOS (Apple Silicon) → `eqoa-frontiers-iso-patch-macos-arm64`
+   - Linux → `eqoa-frontiers-iso-patch-linux-x86_64`
+
+2. **Make a copy of your EQOA Frontiers ISO.** The patcher modifies the ISO **in place** — there's no undo. Always work on a copy and keep your clean original somewhere safe.
+
+3. **Drag your ISO copy onto the patcher executable.** In Windows Explorer (or Finder on macOS), pick up the ISO file and drop it on top of the patcher. A console window opens.
+
+4. **Answer the prompts.**
+   - When asked which patches to apply, **press `3` (or just press Enter)** to apply both. This is what almost everyone wants.
+   - If you see a SHA-256 warning about the ISO not matching the expected hash, that's usually fine — different rippers produce different hashes. Press `y` to continue if you know your ISO works.
+   - If the script aborts with an "ELF checksum mismatch," it's not the right game build and the patcher can't safely modify it. Stop and verify your ISO.
+
+5. **Wait for it to finish.** When you see `[+] Done.` and "Press any key to exit...", press a key to close the window. Your ISO is now patched.
+
+6. **Move the patched ISO to your PCSX2 games folder.** Wherever you keep your PS2 ISOs/DVDs for PCSX2 to find them. Verify the file's "Modified" date is **today** — that confirms the patcher actually wrote to it.
+
+7. **In PCSX2, before launching:**
+   - Make sure the **patched ISO** is the one PCSX2 has selected to boot — not your old unpatched copy.
+   - **Disable any DNAS-related cheats** you may have enabled previously (or just disable all cheats on this game). They'll fight the patches we just applied.
+   - **Rescan your game library:** *Settings → Rescan All Games*. PCSX2 caches game info by file hash, and your patched ISO has a new hash — rescanning makes sure PCSX2 picks up the new file.
+
+8. **Play EQOA!** 🎉
+
+If anything goes wrong along the way, scroll down to [Troubleshooting](#troubleshooting) for the most common errors.
+
+---
+
+## What this patcher does (technical detail)
 
 Given an unmodified EQOA Frontiers ISO, it can produce a modified ISO with one or both of these patches applied:
 
@@ -229,6 +262,8 @@ If the ELF checksum check fails, the script aborts without modification.
 |---|---|---|
 | `WARNING: ISO SHA-256 does not match...` | Your ISO is repackaged, ripped differently, or genuinely modified | This is a **warning, not an abort**. If you know the ISO works in PCSX2 unpatched, you can answer `y` to continue. The ELF checksum check that follows is the real safety gate. **Always have a backup before continuing past this warning.** |
 | `Game ELF checksum mismatch` | Main game ELF differs from the expected build | This **does** abort. The script's offsets only fit one specific build; patching a different one would corrupt the file. No safe override exists |
+| PCSX2 doesn't detect the patched ISO as different | PCSX2 caches game info | Settings → Rescan All Games. Also confirm the patched ISO's modified date is "today" so you know the patcher actually wrote to it. |
+| Game still tries to do DNAS auth in PCSX2 | Cheats overriding the patches | Disable all cheats on EQOA Frontiers in PCSX2's per-game settings |
 | `cannot be opened because the developer cannot be verified` (macOS) | Gatekeeper quarantine | Run `xattr -d com.apple.quarantine ./binary-name` |
 | `Permission denied` (Linux/macOS) | Forgot `chmod +x` | `chmod +x ./binary-name` |
 | `'python' is not recognized` (Windows) | Python not on PATH | Reinstall Python with "Add to PATH" checked, or use the precompiled .exe |
